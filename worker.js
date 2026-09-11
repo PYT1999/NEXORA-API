@@ -1,4 +1,6 @@
-// NEXORA 33.0.0 API — Cloudflare Worker + D1
+import { DurableObject } from "cloudflare:workers";
+
+// NEXORA 34.0.0 API — Cloudflare Worker + D1 + Realtime Realms
 // D1 binding: env.DB
 
 const PBKDF2_ITERATIONS = 100000;
@@ -16,45 +18,82 @@ const ALLOWED_ORIGINS = new Set([
 
 export default {
   async fetch(request, env) {
-    const origin = request.headers.get("Origin") || "";
-    const cors = corsHeaders(origin);
-    const url = new URL(request.url);
+
+    const origin =
+      request.headers.get("Origin") || "";
+
+    const cors =
+      corsHeaders(origin);
+
+    const url =
+      new URL(request.url);
+
 
     if (request.method === "OPTIONS") {
-      if (origin && !ALLOWED_ORIGINS.has(origin))
-        return json({ error: "Origin nicht erlaubt." }, 403, cors);
 
-      return new Response(null, {
-        status: 204,
-        headers: cors
-      });
+      if (
+        origin &&
+        !ALLOWED_ORIGINS.has(origin)
+      ) {
+        return json(
+          {
+            error:
+              "Origin nicht erlaubt."
+          },
+          403,
+          cors
+        );
+      }
+
+      return new Response(
+        null,
+        {
+          status: 204,
+          headers: cors
+        }
+      );
     }
+
 
     if (
       url.pathname.startsWith("/api/") &&
       origin &&
       !ALLOWED_ORIGINS.has(origin)
     ) {
+
       return json(
-        { error: "Origin nicht erlaubt." },
+        {
+          error:
+            "Origin nicht erlaubt."
+        },
         403,
         cors
       );
     }
 
+
     try {
 
-      if (url.pathname === "/health") {
+      // ==================================================
+      // HEALTH
+      // ==================================================
+
+      if (
+        url.pathname === "/health"
+      ) {
+
         return json(
           {
             ok: true,
             service: "nexora-api",
-            version: "33.0.0"
+            version: "34.0.0",
+            multiplayer: true
           },
           200,
           cors
         );
       }
+
 
       // ==================================================
       // REGISTER
@@ -64,20 +103,40 @@ export default {
         url.pathname === "/api/register" &&
         request.method === "POST"
       ) {
-        const body = await readJson(request);
 
-        const email = normalizeEmail(body.email);
-        const password = String(body.password || "");
+        const body =
+          await readJson(request);
 
-        if (!isValidEmail(email)) {
+        const email =
+          normalizeEmail(
+            body.email
+          );
+
+        const password =
+          String(
+            body.password || ""
+          );
+
+
+        if (
+          !isValidEmail(email)
+        ) {
+
           return json(
-            { error: "Ungültige E-Mail-Adresse." },
+            {
+              error:
+                "Ungültige E-Mail-Adresse."
+            },
             400,
             cors
           );
         }
 
-        if (!isValidPassword(password)) {
+
+        if (
+          !isValidPassword(password)
+        ) {
+
           return json(
             {
               error:
@@ -88,12 +147,16 @@ export default {
           );
         }
 
+
         if (
           await env.DB
-            .prepare("SELECT id FROM users WHERE email=?")
+            .prepare(
+              "SELECT id FROM users WHERE email=?"
+            )
             .bind(email)
             .first()
         ) {
+
           return json(
             {
               error:
@@ -104,21 +167,31 @@ export default {
           );
         }
 
-        const id = crypto.randomUUID();
 
-        const salt = crypto.getRandomValues(
-          new Uint8Array(16)
-        );
+        const id =
+          crypto.randomUUID();
 
-        const hash = await passwordHash(
-          password,
-          salt,
-          PBKDF2_ITERATIONS
-        );
 
-        const now = Date.now();
+        const salt =
+          crypto.getRandomValues(
+            new Uint8Array(16)
+          );
+
+
+        const hash =
+          await passwordHash(
+            password,
+            salt,
+            PBKDF2_ITERATIONS
+          );
+
+
+        const now =
+          Date.now();
+
 
         try {
+
           await env.DB
             .prepare(`
               INSERT INTO users
@@ -144,13 +217,15 @@ export default {
             )
             .run();
 
-        } catch (e) {
+        }
+        catch (e) {
 
           if (
             String(e)
               .toLowerCase()
               .includes("unique")
           ) {
+
             return json(
               {
                 error:
@@ -164,11 +239,13 @@ export default {
           throw e;
         }
 
+
         const session =
           await createSession(
             env.DB,
             id
           );
+
 
         return json(
           {
@@ -186,6 +263,7 @@ export default {
         );
       }
 
+
       // ==================================================
       // LOGIN
       // ==================================================
@@ -194,23 +272,28 @@ export default {
         url.pathname === "/api/login" &&
         request.method === "POST"
       ) {
+
         const body =
           await readJson(request);
+
 
         const email =
           normalizeEmail(
             body.email
           );
 
+
         const password =
           String(
             body.password || ""
           );
 
+
         if (
           !isValidEmail(email) ||
           !password
         ) {
+
           return json(
             {
               error:
@@ -220,6 +303,7 @@ export default {
             cors
           );
         }
+
 
         const user =
           await env.DB
@@ -236,7 +320,9 @@ export default {
             .bind(email)
             .first();
 
+
         if (!user) {
+
           return json(
             {
               error:
@@ -246,6 +332,7 @@ export default {
             cors
           );
         }
+
 
         const candidate =
           await passwordHash(
@@ -259,6 +346,7 @@ export default {
               PBKDF2_ITERATIONS
           );
 
+
         if (
           !constantTimeEqual(
             candidate,
@@ -267,6 +355,7 @@ export default {
             )
           )
         ) {
+
           return json(
             {
               error:
@@ -277,11 +366,13 @@ export default {
           );
         }
 
+
         const session =
           await createSession(
             env.DB,
             user.id
           );
+
 
         return json(
           {
@@ -299,6 +390,7 @@ export default {
         );
       }
 
+
       // ==================================================
       // LOGOUT
       // ==================================================
@@ -307,12 +399,15 @@ export default {
         url.pathname === "/api/logout" &&
         request.method === "POST"
       ) {
+
         const raw =
           sessionToken(
             request
           );
 
+
         if (raw) {
+
           await env.DB
             .prepare(`
               DELETE FROM sessions
@@ -325,6 +420,7 @@ export default {
             )
             .run();
         }
+
 
         return json(
           {
@@ -339,21 +435,46 @@ export default {
         );
       }
 
+
       // ==================================================
-      // ACCOUNT
+      // REALTIME MULTIPLAYER
       // ==================================================
 
       if (
-        url.pathname === "/api/me" &&
+        url.pathname === "/api/realtime" &&
         request.method === "GET"
       ) {
+
+        if (
+          (
+            request.headers.get(
+              "Upgrade"
+            ) || ""
+          )
+          .toLowerCase() !==
+          "websocket"
+        ) {
+
+          return json(
+            {
+              error:
+                "WebSocket Upgrade erforderlich."
+            },
+            426,
+            cors
+          );
+        }
+
+
         const auth =
           await requireUser(
             request,
             env.DB
           );
 
+
         if (!auth) {
+
           return json(
             {
               error:
@@ -363,6 +484,190 @@ export default {
             cors
           );
         }
+
+
+        const characterId =
+          cleanText(
+            url.searchParams.get(
+              "characterId"
+            ),
+            80
+          );
+
+
+        if (!characterId) {
+
+          return json(
+            {
+              error:
+                "characterId fehlt."
+            },
+            400,
+            cors
+          );
+        }
+
+
+        /*
+         WICHTIG:
+
+         Realm, Name, Klasse und Level
+         werden NICHT vom Browser vertraut.
+
+         Sie kommen direkt aus D1.
+        */
+
+        const character =
+          await env.DB
+            .prepare(`
+              SELECT
+                id,
+                name,
+                character_class AS cls,
+                server_name AS server,
+                character_level AS level
+              FROM characters
+              WHERE id=?
+              AND user_id=?
+            `)
+            .bind(
+              characterId,
+              auth.id
+            )
+            .first();
+
+
+        if (!character) {
+
+          return json(
+            {
+              error:
+                "Charakter nicht gefunden."
+            },
+            404,
+            cors
+          );
+        }
+
+
+        /*
+         Jeder Realm erhält automatisch
+         sein eigenes Durable Object.
+
+         Beispiel:
+
+         realm:Ashen Realm
+         realm:Blackwater
+         realm:Old Ruins
+        */
+
+        const roomId =
+          env.REALMS
+            .idFromName(
+              "realm:" +
+              character.server
+            );
+
+
+        const room =
+          env.REALMS
+            .get(
+              roomId
+            );
+
+
+        /*
+         Die Identität wurde bereits
+         serverseitig über Session + D1
+         geprüft.
+
+         Erst danach wird sie intern
+         an RealmRoom weitergegeben.
+        */
+
+        const headers =
+          new Headers(
+            request.headers
+          );
+
+
+        headers.set(
+          "x-nexora-user-id",
+          auth.id
+        );
+
+
+        headers.set(
+          "x-nexora-character-id",
+          character.id
+        );
+
+
+        headers.set(
+          "x-nexora-character-name",
+          character.name
+        );
+
+
+        headers.set(
+          "x-nexora-character-class",
+          character.cls
+        );
+
+
+        headers.set(
+          "x-nexora-character-level",
+          String(
+            character.level || 1
+          )
+        );
+
+
+        headers.set(
+          "x-nexora-realm",
+          character.server
+        );
+
+
+        return room.fetch(
+          new Request(
+            request,
+            {
+              headers
+            }
+          )
+        );
+      }
+
+
+      // ==================================================
+      // CURRENT ACCOUNT
+      // ==================================================
+
+      if (
+        url.pathname === "/api/me" &&
+        request.method === "GET"
+      ) {
+
+        const auth =
+          await requireUser(
+            request,
+            env.DB
+          );
+
+
+        if (!auth) {
+
+          return json(
+            {
+              error:
+                "Nicht angemeldet."
+            },
+            401,
+            cors
+          );
+        }
+
 
         return json(
           {
@@ -375,11 +680,13 @@ export default {
         );
       }
 
+
       const auth =
         await requireUser(
           request,
           env.DB
         );
+
 
       if (
         url.pathname.startsWith(
@@ -387,6 +694,7 @@ export default {
         ) &&
         !auth
       ) {
+
         return json(
           {
             error:
@@ -397,6 +705,7 @@ export default {
         );
       }
 
+
       // ==================================================
       // CHARACTER LIST
       // ==================================================
@@ -405,10 +714,12 @@ export default {
         url.pathname === "/api/characters" &&
         request.method === "GET"
       ) {
+
         await migrateLegacyCharacter(
           env.DB,
           auth.id
         );
+
 
         const rows =
           await env.DB
@@ -426,8 +737,11 @@ export default {
               WHERE user_id=?
               ORDER BY slot
             `)
-            .bind(auth.id)
+            .bind(
+              auth.id
+            )
             .all();
+
 
         return json(
           {
@@ -440,6 +754,7 @@ export default {
         );
       }
 
+
       // ==================================================
       // CREATE CHARACTER
       // ==================================================
@@ -448,10 +763,12 @@ export default {
         url.pathname === "/api/characters" &&
         request.method === "POST"
       ) {
+
         await migrateLegacyCharacter(
           env.DB,
           auth.id
         );
+
 
         const countRow =
           await env.DB
@@ -460,14 +777,19 @@ export default {
               FROM characters
               WHERE user_id=?
             `)
-            .bind(auth.id)
+            .bind(
+              auth.id
+            )
             .first();
+
 
         if (
           Number(
             countRow?.n || 0
-          ) >= MAX_CHARACTERS
+          ) >=
+          MAX_CHARACTERS
         ) {
+
           return json(
             {
               error:
@@ -478,20 +800,24 @@ export default {
           );
         }
 
+
         const body =
           await readJson(
             request
           );
+
 
         const name =
           cleanCharacterName(
             body.name
           );
 
+
         const cls =
           cleanClass(
             body.cls
           );
+
 
         const server =
           cleanText(
@@ -499,6 +825,7 @@ export default {
             40
           ) ||
           "Ashen Realm";
+
 
         const requestedSlot =
           clampInt(
@@ -508,10 +835,12 @@ export default {
             0
           );
 
+
         if (
           name.length < 3 ||
           name.length > 18
         ) {
+
           return json(
             {
               error:
@@ -522,11 +851,13 @@ export default {
           );
         }
 
+
         if (
           !/^[\p{L}\p{N} _-]+$/u.test(
             name
           )
         ) {
+
           return json(
             {
               error:
@@ -537,6 +868,7 @@ export default {
           );
         }
 
+
         if (
           await env.DB
             .prepare(`
@@ -544,9 +876,12 @@ export default {
               FROM characters
               WHERE name=? COLLATE NOCASE
             `)
-            .bind(name)
+            .bind(
+              name
+            )
             .first()
         ) {
+
           return json(
             {
               error:
@@ -557,6 +892,7 @@ export default {
           );
         }
 
+
         const used =
           await env.DB
             .prepare(`
@@ -565,17 +901,26 @@ export default {
               WHERE user_id=?
               ORDER BY slot
             `)
-            .bind(auth.id)
+            .bind(
+              auth.id
+            )
             .all();
+
 
         const usedSlots =
           new Set(
-            (used.results || [])
-              .map(
-                r =>
-                  Number(r.slot)
-              )
+            (
+              used.results ||
+              []
+            )
+            .map(
+              r =>
+                Number(
+                  r.slot
+                )
+            )
           );
+
 
         let slot =
           requestedSlot &&
@@ -585,22 +930,29 @@ export default {
             ? requestedSlot
             : 0;
 
+
         if (!slot) {
+
           for (
             let i = 1;
             i <= MAX_CHARACTERS;
             i++
           ) {
+
             if (
               !usedSlots.has(i)
             ) {
+
               slot = i;
+
               break;
             }
           }
         }
 
+
         if (!slot) {
+
           return json(
             {
               error:
@@ -611,11 +963,14 @@ export default {
           );
         }
 
+
         const id =
           crypto.randomUUID();
 
+
         const now =
           Date.now();
+
 
         try {
 
@@ -650,16 +1005,19 @@ export default {
             )
             .run();
 
-        } catch (e) {
+        }
+        catch (e) {
 
-          const m =
+          const message =
             String(e)
               .toLowerCase();
 
+
           if (
-            m.includes("unique") &&
-            m.includes("name")
+            message.includes("unique") &&
+            message.includes("name")
           ) {
+
             return json(
               {
                 error:
@@ -670,9 +1028,11 @@ export default {
             );
           }
 
+
           if (
-            m.includes("unique")
+            message.includes("unique")
           ) {
+
             return json(
               {
                 error:
@@ -683,8 +1043,10 @@ export default {
             );
           }
 
+
           throw e;
         }
+
 
         const character = {
           id,
@@ -697,6 +1059,7 @@ export default {
           updated_at: now
         };
 
+
         return json(
           {
             ok: true,
@@ -707,6 +1070,7 @@ export default {
         );
       }
 
+
       // ==================================================
       // DELETE CHARACTER
       // ==================================================
@@ -716,14 +1080,17 @@ export default {
           /^\/api\/characters\/([^/]+)$/
         );
 
+
       if (
         charMatch &&
         request.method === "DELETE"
       ) {
+
         const id =
           decodeURIComponent(
             charMatch[1]
           );
+
 
         const row =
           await env.DB
@@ -739,7 +1106,9 @@ export default {
             )
             .first();
 
+
         if (!row) {
+
           return json(
             {
               error:
@@ -749,6 +1118,7 @@ export default {
             cors
           );
         }
+
 
         await env.DB
           .prepare(`
@@ -762,6 +1132,7 @@ export default {
           )
           .run();
 
+
         return json(
           {
             ok: true
@@ -771,8 +1142,9 @@ export default {
         );
       }
 
+
       // ==================================================
-      // CHARACTER SAVE
+      // CHARACTER SAVE GET
       // ==================================================
 
       const saveMatch =
@@ -780,14 +1152,17 @@ export default {
           /^\/api\/characters\/([^/]+)\/save$/
         );
 
+
       if (
         saveMatch &&
         request.method === "GET"
       ) {
+
         const id =
           decodeURIComponent(
             saveMatch[1]
           );
+
 
         const row =
           await env.DB
@@ -811,7 +1186,9 @@ export default {
             )
             .first();
 
+
         if (!row) {
+
           return json(
             {
               error:
@@ -821,6 +1198,7 @@ export default {
             cors
           );
         }
+
 
         return json(
           {
@@ -849,19 +1227,27 @@ export default {
         );
       }
 
+
+      // ==================================================
+      // CHARACTER SAVE PUT
+      // ==================================================
+
       if (
         saveMatch &&
         request.method === "PUT"
       ) {
+
         const id =
           decodeURIComponent(
             saveMatch[1]
           );
 
+
         const body =
           await readJson(
             request
           );
+
 
         const exists =
           await env.DB
@@ -877,7 +1263,9 @@ export default {
             )
             .first();
 
+
         if (!exists) {
+
           return json(
             {
               error:
@@ -888,6 +1276,7 @@ export default {
           );
         }
 
+
         const gameSave =
           body.gameSave &&
           typeof body.gameSave ===
@@ -895,15 +1284,18 @@ export default {
             ? body.gameSave
             : {};
 
+
         const txt =
           JSON.stringify(
             gameSave
           );
 
+
         if (
           txt.length >
           200_000
         ) {
+
           return json(
             {
               error:
@@ -914,17 +1306,20 @@ export default {
           );
         }
 
+
         const level =
           clampInt(
             body.level ??
-              gameSave.level,
+            gameSave.level,
             1,
             999,
             1
           );
 
+
         const now =
           Date.now();
+
 
         await env.DB
           .prepare(`
@@ -945,6 +1340,7 @@ export default {
           )
           .run();
 
+
         return json(
           {
             ok: true,
@@ -956,6 +1352,7 @@ export default {
         );
       }
 
+
       // ==================================================
       // NEXORA 32 COMPATIBILITY
       // ==================================================
@@ -964,10 +1361,12 @@ export default {
         url.pathname === "/api/save" &&
         request.method === "GET"
       ) {
+
         await migrateLegacyCharacter(
           env.DB,
           auth.id
         );
+
 
         const row =
           await env.DB
@@ -985,56 +1384,63 @@ export default {
               ORDER BY slot
               LIMIT 1
             `)
-            .bind(auth.id)
+            .bind(
+              auth.id
+            )
             .first();
+
 
         return json(
           {
             ok: true,
 
-            player: row
-              ? {
-                  characterId:
-                    row.id,
+            player:
+              row
+                ? {
+                    characterId:
+                      row.id,
 
-                  server:
-                    row.server_name,
+                    server:
+                      row.server_name,
 
-                  character: {
-                    name:
-                      row.name,
+                    character: {
+                      name:
+                        row.name,
 
-                    cls:
-                      row.character_class,
+                      cls:
+                        row.character_class,
 
-                    level:
-                      row.character_level
-                  },
+                      level:
+                        row.character_level
+                    },
 
-                  gameSave:
-                    safeParse(
-                      row.game_save,
-                      {}
-                    ),
+                    gameSave:
+                      safeParse(
+                        row.game_save,
+                        {}
+                      ),
 
-                  updatedAt:
-                    row.updated_at
-                }
-              : null
+                    updatedAt:
+                      row.updated_at
+                  }
+                : null
           },
           200,
           cors
         );
       }
 
+
       if (
         url.pathname === "/api/save" &&
         request.method === "PUT"
       ) {
+
         await migrateLegacyCharacter(
           env.DB,
           auth.id
         );
+
 
         const row =
           await env.DB
@@ -1045,10 +1451,14 @@ export default {
               ORDER BY slot
               LIMIT 1
             `)
-            .bind(auth.id)
+            .bind(
+              auth.id
+            )
             .first();
 
+
         if (!row) {
+
           return json(
             {
               error:
@@ -1059,10 +1469,12 @@ export default {
           );
         }
 
+
         const body =
           await readJson(
             request
           );
+
 
         const gameSave =
           body.gameSave &&
@@ -1071,15 +1483,18 @@ export default {
             ? body.gameSave
             : {};
 
+
         const txt =
           JSON.stringify(
             gameSave
           );
 
+
         if (
           txt.length >
           200_000
         ) {
+
           return json(
             {
               error:
@@ -1090,17 +1505,20 @@ export default {
           );
         }
 
+
         const level =
           clampInt(
             body.character?.level ??
-              gameSave.level,
+            gameSave.level,
             1,
             999,
             1
           );
 
+
         const now =
           Date.now();
+
 
         await env.DB
           .prepare(`
@@ -1121,6 +1539,7 @@ export default {
           )
           .run();
 
+
         return json(
           {
             ok: true,
@@ -1131,6 +1550,7 @@ export default {
         );
       }
 
+
       return json(
         {
           error:
@@ -1140,15 +1560,18 @@ export default {
         cors
       );
 
-    } catch (err) {
+    }
+    catch (err) {
 
       console.error(err);
+
 
       const status =
         err &&
         err.status
           ? err.status
           : 500;
+
 
       return json(
         {
@@ -1173,7 +1596,7 @@ export default {
 
 
 // ======================================================
-// OLD SAVE → CHARACTER SLOT 1
+// LEGACY PLAYER → CHARACTER SLOT 1
 // ======================================================
 
 async function migrateLegacyCharacter(
@@ -1189,12 +1612,16 @@ async function migrateLegacyCharacter(
         WHERE user_id=?
         LIMIT 1
       `)
-      .bind(userId)
+      .bind(
+        userId
+      )
       .first();
+
 
   if (has) {
     return;
   }
+
 
   const legacy =
     await db
@@ -1209,12 +1636,16 @@ async function migrateLegacyCharacter(
         FROM player_data
         WHERE user_id=?
       `)
-      .bind(userId)
+      .bind(
+        userId
+      )
       .first();
+
 
   if (!legacy) {
     return;
   }
+
 
   let name =
     cleanCharacterName(
@@ -1222,6 +1653,7 @@ async function migrateLegacyCharacter(
       "Ashborn"
     ) ||
     "Ashborn";
+
 
   if (
     await db
@@ -1236,16 +1668,24 @@ async function migrateLegacyCharacter(
 
     name =
       (
-        name.slice(0, 12) +
+        name.slice(
+          0,
+          12
+        ) +
         "-" +
         userId.slice(-5)
-      ).slice(
+      )
+      .slice(
         0,
         18
       );
 
-    let n = 1;
-    let base = name;
+
+    let number = 1;
+
+    const base =
+      name;
+
 
     while (
       await db
@@ -1264,18 +1704,22 @@ async function migrateLegacyCharacter(
             0,
             15
           ) +
-          n
-        ).slice(
+          number
+        )
+        .slice(
           0,
           18
         );
 
-      n++;
+
+      number++;
     }
   }
 
+
   const now =
     Date.now();
+
 
   await db
     .prepare(`
@@ -1329,9 +1773,12 @@ async function migrateLegacyCharacter(
 // HELPERS
 // ======================================================
 
-function corsHeaders(origin) {
+function corsHeaders(
+  origin
+) {
 
-  const h = {
+  const headers = {
+
     "Cache-Control":
       "no-store",
 
@@ -1348,17 +1795,21 @@ function corsHeaders(origin) {
       "Origin"
   };
 
+
   if (
     ALLOWED_ORIGINS.has(
       origin
     )
   ) {
-    h[
+
+    headers[
       "Access-Control-Allow-Origin"
-    ] = origin;
+    ] =
+      origin;
   }
 
-  return h;
+
+  return headers;
 }
 
 
@@ -1370,7 +1821,9 @@ function json(
 ) {
 
   return new Response(
-    JSON.stringify(data),
+    JSON.stringify(
+      data
+    ),
     {
       status,
 
@@ -1394,13 +1847,16 @@ async function readJson(
     Number(
       request.headers.get(
         "Content-Length"
-      ) || 0
+      ) ||
+      0
     );
+
 
   if (
     len >
     MAX_BODY_BYTES
   ) {
+
     throw Object.assign(
       new Error(
         "Anfrage ist zu groß."
@@ -1411,13 +1867,16 @@ async function readJson(
     );
   }
 
+
   const text =
     await request.text();
+
 
   if (
     text.length >
     MAX_BODY_BYTES
   ) {
+
     throw Object.assign(
       new Error(
         "Anfrage ist zu groß."
@@ -1428,11 +1887,16 @@ async function readJson(
     );
   }
 
+
   try {
+
     return text
       ? JSON.parse(text)
       : {};
-  } catch {
+
+  }
+  catch {
+
     throw Object.assign(
       new Error(
         "Ungültige JSON-Daten."
@@ -1445,96 +1909,121 @@ async function readJson(
 }
 
 
-function normalizeEmail(v) {
+function normalizeEmail(
+  value
+) {
+
   return String(
-    v || ""
+    value || ""
   )
-    .trim()
-    .toLowerCase();
+  .trim()
+  .toLowerCase();
 }
 
 
-function isValidEmail(v) {
+function isValidEmail(
+  value
+) {
+
   return (
-    v.length <= 254 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+    value.length <= 254 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      .test(value)
   );
 }
 
 
-function isValidPassword(p) {
+function isValidPassword(
+  password
+) {
+
   return (
-    p.length >= 8 &&
-    p.length <= 128 &&
-    /[A-Z]/.test(p) &&
-    /[a-z]/.test(p) &&
-    /\d/.test(p)
+    password.length >= 8 &&
+    password.length <= 128 &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password) &&
+    /\d/.test(password)
   );
 }
 
 
 function cleanText(
-  v,
+  value,
   max
 ) {
+
   return String(
-    v || ""
+    value || ""
   )
-    .trim()
-    .replace(
-      /\s+/g,
-      " "
-    )
-    .slice(
-      0,
-      max
-    );
+  .trim()
+  .replace(
+    /\s+/g,
+    " "
+  )
+  .slice(
+    0,
+    max
+  );
 }
 
 
-function cleanCharacterName(v) {
+function cleanCharacterName(
+  value
+) {
+
   return cleanText(
-    v,
+    value,
     18
   );
 }
 
 
-function cleanClass(v) {
-  const x =
+function cleanClass(
+  value
+) {
+
+  const characterClass =
     String(
-      v || ""
+      value || ""
     )
-      .toUpperCase();
+    .toUpperCase();
+
 
   return [
     "WARRIOR",
     "RANGER",
     "MAGE"
-  ].includes(x)
-    ? x
+  ]
+  .includes(
+    characterClass
+  )
+    ? characterClass
     : "WARRIOR";
 }
 
 
 function clampInt(
-  v,
+  value,
   min,
   max,
   fallback
 ) {
-  const n =
+
+  const number =
     Number.parseInt(
-      v,
+      value,
       10
     );
 
-  return Number.isFinite(n)
+
+  return Number.isFinite(
+    number
+  )
     ? Math.max(
         min,
         Math.min(
           max,
-          n
+          number
         )
       )
     : fallback;
@@ -1542,18 +2031,27 @@ function clampInt(
 
 
 function safeParse(
-  v,
+  value,
   fallback
 ) {
+
   try {
-    return JSON.parse(v);
-  } catch {
+
+    return JSON.parse(
+      value
+    );
+
+  }
+  catch {
+
     return fallback;
   }
 }
 
 
-function sessionCookie(token) {
+function sessionCookie(
+  token
+) {
 
   return (
     `${COOKIE_NAME}=${token}; ` +
@@ -1586,7 +2084,9 @@ function sessionToken(
   const cookie =
     request.headers.get(
       "Cookie"
-    ) || "";
+    ) ||
+    "";
+
 
   for (
     const part of
@@ -1594,20 +2094,25 @@ function sessionToken(
   ) {
 
     const [
-      k,
+      key,
       ...rest
     ] =
       part
         .trim()
         .split("=");
 
+
     if (
-      k ===
+      key ===
       COOKIE_NAME
     ) {
-      return rest.join("=");
+
+      return rest.join(
+        "="
+      );
     }
   }
+
 
   return "";
 }
@@ -1623,17 +2128,21 @@ async function requireUser(
       request
     );
 
+
   if (!raw) {
     return null;
   }
+
 
   const hash =
     await sha256Base64(
       raw
     );
 
+
   const now =
     Date.now();
+
 
   const row =
     await db
@@ -1656,6 +2165,7 @@ async function requireUser(
       )
       .first();
 
+
   return row
     ? {
         id: row.id,
@@ -1675,23 +2185,28 @@ async function createSession(
       new Uint8Array(32)
     );
 
+
   const token =
     toBase64Url(
       bytes
     );
+
 
   const tokenHash =
     await sha256Base64(
       token
     );
 
+
   const now =
     Date.now();
+
 
   const expiresAt =
     now +
     SESSION_DAYS *
-      86400000;
+    86400000;
+
 
   await db
     .prepare(`
@@ -1712,13 +2227,17 @@ async function createSession(
     )
     .run();
 
+
   await db
     .prepare(`
       DELETE FROM sessions
       WHERE expires_at<=?
     `)
-    .bind(now)
+    .bind(
+      now
+    )
     .run();
+
 
   return {
     token,
@@ -1753,6 +2272,7 @@ async function passwordHash(
       ]
     );
 
+
   const bits =
     await crypto.subtle.deriveBits(
       {
@@ -1766,6 +2286,7 @@ async function passwordHash(
 
       256
     );
+
 
   return new Uint8Array(
     bits
@@ -1804,77 +2325,914 @@ function constantTimeEqual(
     return false;
   }
 
+
   let diff = 0;
+
 
   for (
     let i = 0;
     i < a.length;
     i++
   ) {
+
     diff |=
       a[i] ^
       b[i];
   }
 
+
   return diff === 0;
 }
 
 
-function toBase64(bytes) {
+function toBase64(
+  bytes
+) {
 
-  let x = "";
+  let text = "";
+
 
   for (
-    const b of bytes
+    const byte of
+    bytes
   ) {
-    x +=
+
+    text +=
       String.fromCharCode(
-        b
+        byte
       );
   }
 
-  return btoa(x);
+
+  return btoa(
+    text
+  );
 }
 
 
-function fromBase64(s) {
+function fromBase64(
+  text
+) {
 
   const raw =
-    atob(s);
+    atob(
+      text
+    );
 
-  const out =
+
+  const output =
     new Uint8Array(
       raw.length
     );
+
 
   for (
     let i = 0;
     i < raw.length;
     i++
   ) {
-    out[i] =
-      raw.charCodeAt(i);
+
+    output[i] =
+      raw.charCodeAt(
+        i
+      );
   }
 
-  return out;
+
+  return output;
 }
 
 
-function toBase64Url(bytes) {
+function toBase64Url(
+  bytes
+) {
 
   return toBase64(
     bytes
   )
-    .replace(
-      /\+/g,
-      "-"
-    )
-    .replace(
-      /\//g,
-      "_"
-    )
-    .replace(
-      /=+$/g,
-      ""
+  .replace(
+    /\+/g,
+    "-"
+  )
+  .replace(
+    /\//g,
+    "_"
+  )
+  .replace(
+    /=+$/g,
+    ""
+  );
+}
+
+
+// ======================================================
+// REALM DURABLE OBJECT
+// ======================================================
+
+export class RealmRoom extends DurableObject {
+
+  constructor(
+    ctx,
+    env
+  ) {
+
+    super(
+      ctx,
+      env
     );
+
+
+    this.ctx =
+      ctx;
+
+
+    this.env =
+      env;
+  }
+
+
+  async fetch(
+    request
+  ) {
+
+    if (
+      (
+        request.headers.get(
+          "Upgrade"
+        ) || ""
+      )
+      .toLowerCase() !==
+      "websocket"
+    ) {
+
+      return new Response(
+        "WebSocket required",
+        {
+          status: 426
+        }
+      );
+    }
+
+
+    /*
+     Diese Werte kommen NICHT
+     direkt vom Browser.
+
+     Der normale Worker hat vorher
+     Session + D1 validiert.
+    */
+
+    const userId =
+      request.headers.get(
+        "x-nexora-user-id"
+      ) ||
+      "";
+
+
+    const characterId =
+      request.headers.get(
+        "x-nexora-character-id"
+      ) ||
+      "";
+
+
+    const name =
+      cleanText(
+        request.headers.get(
+          "x-nexora-character-name"
+        ),
+        18
+      ) ||
+      "Ashborn";
+
+
+    const cls =
+      cleanClass(
+        request.headers.get(
+          "x-nexora-character-class"
+        )
+      );
+
+
+    const level =
+      clampInt(
+        request.headers.get(
+          "x-nexora-character-level"
+        ),
+        1,
+        999,
+        1
+      );
+
+
+    const realm =
+      cleanText(
+        request.headers.get(
+          "x-nexora-realm"
+        ),
+        40
+      ) ||
+      "Ashen Realm";
+
+
+    if (
+      !userId ||
+      !characterId
+    ) {
+
+      return new Response(
+        "Missing verified identity",
+        {
+          status: 401
+        }
+      );
+    }
+
+
+    /*
+     Derselbe Charakter darf
+     nicht gleichzeitig zweimal
+     online sein.
+    */
+
+    for (
+      const socket of
+      this.ctx.getWebSockets()
+    ) {
+
+      const old =
+        safeSocketAttachment(
+          socket
+        );
+
+
+      if (
+        old?.characterId ===
+        characterId
+      ) {
+
+        try {
+
+          socket.close(
+            4001,
+            "Character connected elsewhere"
+          );
+
+        }
+        catch {}
+      }
+    }
+
+
+    /*
+     WebSocket-Paar erzeugen.
+    */
+
+    const pair =
+      new WebSocketPair();
+
+
+    const [
+      client,
+      server
+    ] =
+      Object.values(
+        pair
+      );
+
+
+    /*
+     Hibernation API.
+
+     Dadurch kann Cloudflare
+     den Realm schlafen lassen,
+     ohne Spieler zu trennen.
+    */
+
+    this.ctx
+      .acceptWebSocket(
+        server,
+        [
+          "realm-player"
+        ]
+      );
+
+
+    const player = {
+
+      userId,
+
+      characterId,
+
+      name,
+
+      cls,
+
+      level,
+
+      realm,
+
+      x: 1050,
+
+      y: 1450,
+
+      dir: "down",
+
+      moving: false,
+
+      attacking: false,
+
+      /*
+       Beim ersten State darf der
+       Charakter an seine gespeicherte
+       Position springen.
+
+       Erst danach greift die
+       Anti-Teleport-Prüfung.
+      */
+
+      hasState: false,
+
+      lastMessageAt: 0,
+
+      lastStateAt:
+        Date.now()
+    };
+
+
+    /*
+     Wichtig für Hibernation:
+     Spielerdaten hängen direkt
+     am WebSocket.
+    */
+
+    server.serializeAttachment(
+      player
+    );
+
+
+    /*
+     Neuer Spieler bekommt zuerst
+     alle Spieler, die bereits
+     im Realm sind.
+    */
+
+    const snapshot = [];
+
+
+    for (
+      const socket of
+      this.ctx.getWebSockets(
+        "realm-player"
+      )
+    ) {
+
+      if (
+        socket ===
+        server
+      ) {
+        continue;
+      }
+
+
+      const other =
+        safeSocketAttachment(
+          socket
+        );
+
+
+      if (
+        other?.characterId
+      ) {
+
+        snapshot.push(
+          publicRealmPlayer(
+            other
+          )
+        );
+      }
+    }
+
+
+    try {
+
+      server.send(
+        JSON.stringify({
+          t: "snapshot",
+          realm,
+          players: snapshot
+        })
+      );
+
+    }
+    catch {}
+
+
+    /*
+     Allen anderen mitteilen:
+     Neuer Spieler ist da.
+    */
+
+    this.broadcast(
+      {
+        t: "join",
+        player:
+          publicRealmPlayer(
+            player
+          )
+      },
+      server
+    );
+
+
+    this.broadcastPresence();
+
+
+    return new Response(
+      null,
+      {
+        status: 101,
+        webSocket: client
+      }
+    );
+  }
+
+
+  // ====================================================
+  // PLAYER STATE
+  // ====================================================
+
+  async webSocketMessage(
+    ws,
+    message
+  ) {
+
+    if (
+      typeof message !==
+        "string" ||
+      message.length > 4096
+    ) {
+
+      return;
+    }
+
+
+    let data;
+
+
+    try {
+
+      data =
+        JSON.parse(
+          message
+        );
+
+    }
+    catch {
+
+      return;
+    }
+
+
+    if (
+      !data ||
+      data.t !==
+        "state"
+    ) {
+
+      return;
+    }
+
+
+    const player =
+      safeSocketAttachment(
+        ws
+      );
+
+
+    if (
+      !player?.characterId
+    ) {
+
+      return;
+    }
+
+
+    const now =
+      Date.now();
+
+
+    /*
+     Maximal ungefähr 30
+     State-Nachrichten pro Sekunde.
+    */
+
+    if (
+      player.lastMessageAt &&
+      now -
+        player.lastMessageAt <
+        33
+    ) {
+
+      return;
+    }
+
+
+    const x =
+      Number(
+        data.x
+      );
+
+
+    const y =
+      Number(
+        data.y
+      );
+
+
+    if (
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
+
+      return;
+    }
+
+
+    /*
+     Weltgrenzen aus deinem
+     aktuellen NEXORA:
+
+     7200 × 4800
+    */
+
+    const nextX =
+      Math.max(
+        20,
+        Math.min(
+          7180,
+          x
+        )
+      );
+
+
+    const nextY =
+      Math.max(
+        20,
+        Math.min(
+          4780,
+          y
+        )
+      );
+
+
+    /*
+     Einfache serverseitige
+     Anti-Teleport-Prüfung.
+
+     Deine normale Laufgeschwindigkeit
+     liegt deutlich darunter.
+
+     Extra Spielraum ist für
+     Lags + Dodge vorgesehen.
+    */
+
+    const elapsedMs =
+      Math.max(
+        1,
+        now -
+        (
+          player.lastStateAt ||
+          now
+        )
+      );
+
+
+    const allowedDistance =
+      90 +
+      (
+        elapsedMs /
+        1000
+      ) *
+      950;
+
+
+    const travelled =
+      Math.hypot(
+        nextX -
+          player.x,
+        nextY -
+          player.y
+      );
+
+
+    /*
+     Erster State darf die gespeicherte
+     Position übernehmen.
+    */
+
+    if (
+      player.hasState &&
+      travelled >
+        allowedDistance
+    ) {
+
+      try {
+
+        ws.send(
+          JSON.stringify({
+            t: "correction",
+            x: player.x,
+            y: player.y
+          })
+        );
+
+      }
+      catch {}
+
+
+      player.lastMessageAt =
+        now;
+
+
+      ws.serializeAttachment(
+        player
+      );
+
+
+      return;
+    }
+
+
+    player.x =
+      nextX;
+
+
+    player.y =
+      nextY;
+
+
+    player.dir =
+      [
+        "up",
+        "down",
+        "left",
+        "right"
+      ]
+      .includes(
+        data.dir
+      )
+        ? data.dir
+        : "down";
+
+
+    player.moving =
+      !!data.moving;
+
+
+    player.attacking =
+      !!data.attacking;
+
+
+    player.hasState =
+      true;
+
+
+    player.lastMessageAt =
+      now;
+
+
+    player.lastStateAt =
+      now;
+
+
+    /*
+     Neuen Zustand an
+     alle anderen Spieler senden.
+    */
+
+    ws.serializeAttachment(
+      player
+    );
+
+
+    this.broadcast(
+      {
+        t: "state",
+
+        player:
+          publicRealmPlayer(
+            player
+          )
+      },
+      ws
+    );
+  }
+
+
+  // ====================================================
+  // DISCONNECT
+  // ====================================================
+
+  async webSocketClose(
+    ws
+  ) {
+
+    const player =
+      safeSocketAttachment(
+        ws
+      );
+
+
+    if (
+      player?.characterId
+    ) {
+
+      this.broadcast(
+        {
+          t: "leave",
+          id:
+            player.characterId
+        },
+        ws
+      );
+    }
+
+
+    this.broadcastPresence();
+  }
+
+
+  async webSocketError(
+    ws
+  ) {
+
+    const player =
+      safeSocketAttachment(
+        ws
+      );
+
+
+    if (
+      player?.characterId
+    ) {
+
+      this.broadcast(
+        {
+          t: "leave",
+          id:
+            player.characterId
+        },
+        ws
+      );
+    }
+
+
+    try {
+
+      ws.close(
+        1011,
+        "Realm socket error"
+      );
+
+    }
+    catch {}
+
+
+    this.broadcastPresence();
+  }
+
+
+  // ====================================================
+  // BROADCAST
+  // ====================================================
+
+  broadcast(
+    payload,
+    except = null
+  ) {
+
+    const text =
+      JSON.stringify(
+        payload
+      );
+
+
+    for (
+      const socket of
+      this.ctx.getWebSockets(
+        "realm-player"
+      )
+    ) {
+
+      if (
+        socket ===
+        except
+      ) {
+        continue;
+      }
+
+
+      try {
+
+        socket.send(
+          text
+        );
+
+      }
+      catch {}
+    }
+  }
+
+
+  broadcastPresence() {
+
+    let count = 0;
+
+
+    for (
+      const socket of
+      this.ctx.getWebSockets(
+        "realm-player"
+      )
+    ) {
+
+      if (
+        safeSocketAttachment(
+          socket
+        )
+        ?.characterId
+      ) {
+
+        count++;
+      }
+    }
+
+
+    this.broadcast(
+      {
+        t: "presence",
+        count
+      }
+    );
+  }
+}
+
+
+// ======================================================
+// REALM HELPERS
+// ======================================================
+
+function safeSocketAttachment(
+  ws
+) {
+
+  try {
+
+    return (
+      ws.deserializeAttachment() ||
+      null
+    );
+
+  }
+  catch {
+
+    return null;
+  }
+}
+
+
+function publicRealmPlayer(
+  player
+) {
+
+  return {
+
+    id:
+      player.characterId,
+
+    name:
+      player.name,
+
+    cls:
+      player.cls,
+
+    level:
+      player.level,
+
+    x:
+      player.x,
+
+    y:
+      player.y,
+
+    dir:
+      player.dir,
+
+    moving:
+      !!player.moving,
+
+    attacking:
+      !!player.attacking
+  };
 }
