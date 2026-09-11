@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nexora-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-11",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nexora-db",
+      "database_id": "affbc5a7-3778-4e31-b06f-130a3e9f373a"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REALMS",
+        "class_name": "RealmRoom"
+      }
+    ]
+  },
+
+  "exports": {
+    "RealmRoom": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}
