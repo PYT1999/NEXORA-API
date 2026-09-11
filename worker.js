@@ -9,6 +9,10 @@ const MAX_BODY_BYTES = 300_000;
 const COOKIE_NAME = "nx_session";
 const MAX_CHARACTERS = 3;
 
+const RESET_CODE_TTL_MS = 10 * 60 * 1000;
+const RESET_REQUEST_COOLDOWN_MS = 60 * 1000;
+const RESET_MAX_ATTEMPTS = 5;
+
 const ALLOWED_ORIGINS = new Set([
   "https://nexorasystems.ch",
   "https://www.nexorasystems.ch",
@@ -79,20 +83,20 @@ export default {
       // ==================================================
 
       if (
-        url.pathname === "/health"
-      ) {
-
-        return json(
-          {
-            ok: true,
-            service: "nexora-api",
-            version: "34.0.0",
-            multiplayer: true
-          },
-          200,
-          cors
-        );
-      }
+if (url.pathname === "/health") {
+  return json({
+    ok: true,
+    service: "nexora-api",
+    version: "34.1.0",
+    multiplayer: true,
+    passwordReset: true,
+    passwordResetConfigured: !!(
+      env.RESEND_API_KEY &&
+      env.RESET_FROM_EMAIL &&
+      env.PASSWORD_RESET_SECRET
+    )
+  }, 200, cors);
+}
 
 
       // ==================================================
@@ -434,7 +438,462 @@ export default {
           }
         );
       }
+// ==================================================
+// PASSWORD RESET
+// ==================================================
 
+if (
+  url.pathname === "/api/password-reset/request" &&
+  request.method === "POST"
+) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+
+  if (!isValidEmail(email)) {
+    return json(
+      {
+        error: "Bitte eine gültige E-Mail-Adresse eingeben."
+      },
+      400,
+      cors
+    );
+  }
+
+  if (
+    !env.RESEND_API_KEY ||
+    !env.RESET_FROM_EMAIL ||
+    !env.PASSWORD_RESET_SECRET
+  ) {
+    return json(
+      {
+        error:
+          "Passwort-Wiederherstellung ist noch nicht vollständig eingerichtet."
+      },
+      503,
+      cors
+    );
+  }
+
+  await ensurePasswordResetTable(env.DB);
+
+  const user = await env.DB
+    .prepare(`
+      SELECT id,email
+      FROM users
+      WHERE email=?
+    `)
+    .bind(email)
+    .first();
+
+  /*
+   Absichtlich gleiche Antwort,
+   auch wenn die Mail nicht existiert.
+  */
+  const publicResult = {
+    ok: true,
+    message:
+      "Wenn für diese E-Mail ein NEXORA-Account existiert, wurde ein Reset-Code gesendet."
+  };
+
+  if (!user) {
+    return json(publicResult, 200, cors);
+  }
+
+  const now = Date.now();
+
+  const recent = await env.DB
+    .prepare(`
+      SELECT created_at
+      FROM password_reset_codes
+      WHERE user_id=?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `)
+    .bind(user.id)
+    .first();
+
+  /*
+   Maximal 1 Reset-Code pro Minute.
+  */
+  if (
+    recent &&
+    now - Number(recent.created_at || 0) <
+      RESET_REQUEST_COOLDOWN_MS
+  ) {
+    return json(publicResult, 200, cors);
+  }
+
+  const code = randomResetCode();
+
+  const codeHash = await resetCodeHash(
+    env.PASSWORD_RESET_SECRET,
+    email,
+    code
+  );
+
+  const resetId = crypto.randomUUID();
+  const expiresAt = now + RESET_CODE_TTL_MS;
+
+  /*
+   Alle vorherigen Codes ungültig machen.
+  */
+  await env.DB
+    .prepare(`
+      UPDATE password_reset_codes
+      SET used_at=?
+      WHERE user_id=?
+      AND used_at IS NULL
+    `)
+    .bind(now, user.id)
+    .run();
+
+  await env.DB
+    .prepare(`
+      INSERT INTO password_reset_codes
+      (
+        id,
+        user_id,
+        code_hash,
+        created_at,
+        expires_at,
+        attempts,
+        used_at
+      )
+      VALUES (?,?,?,?,?,?,NULL)
+    `)
+    .bind(
+      resetId,
+      user.id,
+      codeHash,
+      now,
+      expiresAt,
+      0
+    )
+    .run();
+
+  const sent = await sendPasswordResetEmail(
+    env,
+    user.email,
+    code
+  );
+
+  if (!sent) {
+    await env.DB
+      .prepare(`
+        UPDATE password_reset_codes
+        SET used_at=?
+        WHERE id=?
+      `)
+      .bind(
+        Date.now(),
+        resetId
+      )
+      .run();
+
+    console.error(
+      "NEXORA password reset email could not be sent for",
+      user.id
+    );
+  }
+
+  return json(
+    publicResult,
+    200,
+    cors
+  );
+}
+
+
+if (
+  url.pathname === "/api/password-reset/confirm" &&
+  request.method === "POST"
+) {
+  const body = await readJson(request);
+
+  const email = normalizeEmail(
+    body.email
+  );
+
+  const code = String(
+    body.code || ""
+  ).replace(/\s+/g, "");
+
+  const newPassword = String(
+    body.newPassword || ""
+  );
+
+  const confirmPassword = String(
+    body.confirmPassword || ""
+  );
+
+  if (
+    !isValidEmail(email) ||
+    !/^\d{6}$/.test(code)
+  ) {
+    return json(
+      {
+        error:
+          "Reset-Code ist ungültig oder abgelaufen."
+      },
+      400,
+      cors
+    );
+  }
+
+  if (
+    !isValidPassword(newPassword)
+  ) {
+    return json(
+      {
+        error:
+          "Neues Passwort benötigt mindestens 8 Zeichen, Groß- und Kleinbuchstaben sowie mindestens eine Zahl."
+      },
+      400,
+      cors
+    );
+  }
+
+  if (
+    newPassword !== confirmPassword
+  ) {
+    return json(
+      {
+        error:
+          "Die beiden neuen Passwörter stimmen nicht überein."
+      },
+      400,
+      cors
+    );
+  }
+
+  if (!env.PASSWORD_RESET_SECRET) {
+    return json(
+      {
+        error:
+          "Passwort-Wiederherstellung ist noch nicht vollständig eingerichtet."
+      },
+      503,
+      cors
+    );
+  }
+
+  await ensurePasswordResetTable(
+    env.DB
+  );
+
+  const user = await env.DB
+    .prepare(`
+      SELECT id,email
+      FROM users
+      WHERE email=?
+    `)
+    .bind(email)
+    .first();
+
+  if (!user) {
+    return json(
+      {
+        error:
+          "Reset-Code ist ungültig oder abgelaufen."
+      },
+      400,
+      cors
+    );
+  }
+
+  const now = Date.now();
+
+  const row = await env.DB
+    .prepare(`
+      SELECT
+        id,
+        code_hash,
+        attempts,
+        expires_at
+      FROM password_reset_codes
+      WHERE user_id=?
+      AND used_at IS NULL
+      AND expires_at>?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `)
+    .bind(
+      user.id,
+      now
+    )
+    .first();
+
+  if (
+    !row ||
+    Number(row.attempts || 0) >=
+      RESET_MAX_ATTEMPTS
+  ) {
+    return json(
+      {
+        error:
+          "Reset-Code ist ungültig oder abgelaufen."
+      },
+      400,
+      cors
+    );
+  }
+
+  const candidateHash =
+    await resetCodeHash(
+      env.PASSWORD_RESET_SECRET,
+      email,
+      code
+    );
+
+  if (
+    !constantTimeStringEqual(
+      candidateHash,
+      String(row.code_hash || "")
+    )
+  ) {
+    const nextAttempts =
+      Number(row.attempts || 0) + 1;
+
+    if (
+      nextAttempts >=
+      RESET_MAX_ATTEMPTS
+    ) {
+      await env.DB
+        .prepare(`
+          UPDATE password_reset_codes
+          SET attempts=?,
+              used_at=?
+          WHERE id=?
+        `)
+        .bind(
+          nextAttempts,
+          now,
+          row.id
+        )
+        .run();
+
+    } else {
+
+      await env.DB
+        .prepare(`
+          UPDATE password_reset_codes
+          SET attempts=?
+          WHERE id=?
+        `)
+        .bind(
+          nextAttempts,
+          row.id
+        )
+        .run();
+    }
+
+    return json(
+      {
+        error:
+          "Reset-Code ist ungültig oder abgelaufen."
+      },
+      400,
+      cors
+    );
+  }
+
+
+  const salt =
+    crypto.getRandomValues(
+      new Uint8Array(16)
+    );
+
+
+  const hash =
+    await passwordHash(
+      newPassword,
+      salt,
+      PBKDF2_ITERATIONS
+    );
+
+
+  /*
+   Nur Passwort-Daten werden geändert.
+   Charaktere und Saves bleiben unangetastet.
+  */
+  await env.DB
+    .prepare(`
+      UPDATE users
+      SET
+        password_hash=?,
+        password_salt=?,
+        password_iterations=?,
+        updated_at=?
+      WHERE id=?
+    `)
+    .bind(
+      toBase64(hash),
+      toBase64(salt),
+      PBKDF2_ITERATIONS,
+      now,
+      user.id
+    )
+    .run();
+
+
+  /*
+   Alle alten Sessions beenden.
+  */
+  await env.DB
+    .prepare(`
+      DELETE FROM sessions
+      WHERE user_id=?
+    `)
+    .bind(
+      user.id
+    )
+    .run();
+
+
+  /*
+   Reset-Code endgültig verbrauchen.
+  */
+  await env.DB
+    .prepare(`
+      UPDATE password_reset_codes
+      SET used_at=?
+      WHERE user_id=?
+      AND used_at IS NULL
+    `)
+    .bind(
+      now,
+      user.id
+    )
+    .run();
+
+
+  /*
+   Direkt neue Session erzeugen.
+  */
+  const session =
+    await createSession(
+      env.DB,
+      user.id
+    );
+
+
+  return json(
+    {
+      ok: true,
+      email: user.email,
+      message:
+        "Passwort wurde zurückgesetzt."
+    },
+    200,
+    cors,
+    {
+      "Set-Cookie":
+        sessionCookie(
+          session.token
+        )
+    }
+  );
+}
 
       // ==================================================
       // REALTIME MULTIPLAYER
@@ -714,7 +1173,213 @@ export default {
         url.pathname === "/api/characters" &&
         request.method === "GET"
       ) {
+async function ensurePasswordResetTable(db) {
 
+  await db
+    .prepare(`
+      CREATE TABLE IF NOT EXISTS password_reset_codes
+      (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        used_at INTEGER,
+
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+      )
+    `)
+    .run();
+
+
+  await db
+    .prepare(`
+      CREATE INDEX IF NOT EXISTS idx_password_reset_user
+      ON password_reset_codes
+      (
+        user_id,
+        created_at DESC
+      )
+    `)
+    .run();
+}
+
+
+function randomResetCode() {
+
+  const values =
+    new Uint32Array(1);
+
+  crypto.getRandomValues(
+    values
+  );
+
+  return String(
+    values[0] % 1000000
+  ).padStart(
+    6,
+    "0"
+  );
+}
+
+
+async function resetCodeHash(
+  secret,
+  email,
+  code
+) {
+
+  return sha256Base64(
+    String(secret) +
+    "|" +
+    normalizeEmail(email) +
+    "|" +
+    String(code)
+  );
+}
+
+
+function constantTimeStringEqual(
+  a,
+  b
+) {
+
+  a = String(a);
+  b = String(b);
+
+  if (
+    a.length !== b.length
+  ) {
+    return false;
+  }
+
+  let diff = 0;
+
+  for (
+    let i = 0;
+    i < a.length;
+    i++
+  ) {
+
+    diff |=
+      a.charCodeAt(i) ^
+      b.charCodeAt(i);
+  }
+
+  return diff === 0;
+}
+
+
+async function sendPasswordResetEmail(
+  env,
+  to,
+  code
+) {
+
+  try {
+
+    const response =
+      await fetch(
+        "https://api.resend.com/emails",
+        {
+          method: "POST",
+
+          headers: {
+            "Authorization":
+              "Bearer " +
+              env.RESEND_API_KEY,
+
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+              from:
+                env.RESET_FROM_EMAIL,
+
+              to: [
+                to
+              ],
+
+              subject:
+                "NEXORA – Passwort zurücksetzen",
+
+              text:
+                `Dein NEXORA Reset-Code lautet: ${code}\n\n` +
+                `Der Code ist 10 Minuten gültig.\n\n` +
+                `Falls du das nicht angefordert hast, ignoriere diese E-Mail.`,
+
+              html: `
+<div style="
+  font-family:Arial,sans-serif;
+  background:#0b0d10;
+  color:#eee;
+  padding:28px
+">
+  <h2 style="
+    letter-spacing:.12em
+  ">
+    NEXORA
+  </h2>
+
+  <p>
+    Du hast das Zurücksetzen deines Passworts angefordert.
+  </p>
+
+  <p style="
+    font-size:30px;
+    font-weight:800;
+    letter-spacing:.25em
+  ">
+    ${code}
+  </p>
+
+  <p>
+    Der Code ist <b>10 Minuten</b> gültig.
+  </p>
+
+  <p style="
+    color:#9aa0aa
+  ">
+    Falls du das nicht angefordert hast,
+    ignoriere diese E-Mail.
+  </p>
+</div>
+`
+            })
+        }
+      );
+
+
+    if (!response.ok) {
+
+      console.error(
+        "Resend error",
+        response.status,
+        await response.text()
+      );
+
+      return false;
+    }
+
+
+    return true;
+
+  }
+  catch (error) {
+
+    console.error(
+      "Resend request failed",
+      error
+    );
+
+    return false;
+  }
+}
         await migrateLegacyCharacter(
           env.DB,
           auth.id
