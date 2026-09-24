@@ -35,8 +35,21 @@ export default {
 
     try {
       if (url.pathname === "/health") {
-        return json({ok:true,service:"nexora-api",version:"34.1.1",multiplayer:true,passwordReset:true,passwordResetConfigured:!!(env.RESEND_API_KEY&&env.PASSWORD_RESET_SECRET)},200,cors);
-      }
+     if (url.pathname === "/health") {
+  return json({
+    ok:true,
+    service:"nexora-api",
+    version:"34.1.2",
+    multiplayer:true,
+    passwordReset:true,
+    passwordResetConfigured:!!(
+      env.RESEND_API_KEY &&
+      env.PASSWORD_RESET_SECRET
+    ),
+    resendApiKeyConfigured:!!env.RESEND_API_KEY,
+    passwordResetSecretConfigured:!!env.PASSWORD_RESET_SECRET
+  },200,cors);
+}
 
       if (url.pathname === "/api/register" && request.method === "POST") {
         const body=await readJson(request), email=normalizeEmail(body.email), password=String(body.password||"");
