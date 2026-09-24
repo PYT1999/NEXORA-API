@@ -3,7 +3,7 @@
   "name": "nexora-api",
   "main": "worker.js",
   "compatibility_date": "2026-09-11",
-  "keep_vars": true,
+
   "vars": {
     "RESET_FROM_EMAIL": "NEXORA <noreply@mail.nexorasystems.ch>"
   },
@@ -30,5 +30,18 @@
       "type": "durable-object",
       "storage": "sqlite"
     }
-  }
+  },
+
+  "secrets_store_secrets": [
+    {
+      "binding": "RESEND_API_KEY",
+      "store_id": "bbbc1becca17494f890f9a145dde6632",
+      "secret_name": "RESEND_API_KEY"
+    },
+    {
+      "binding": "PASSWORD_RESET_SECRET",
+      "store_id": "bbbc1becca17494f890f9a145dde6632",
+      "secret_name": "PASSWORD_RESET_SECRET"
+    }
+  ]
 }
