@@ -43,19 +43,19 @@ const PASSWORD_RESET_SECRET =
     }
 
     try {
-   if (url.pathname === "/health") {
+if (url.pathname === "/health") {
   return json({
     ok:true,
     service:"nexora-api",
-    version:"34.1.2",
+    version:"34.1.3",
     multiplayer:true,
     passwordReset:true,
     passwordResetConfigured:!!(
-      env.RESEND_API_KEY &&
-      env.PASSWORD_RESET_SECRET
+      RESEND_API_KEY &&
+      PASSWORD_RESET_SECRET
     ),
-    resendApiKeyConfigured:!!env.RESEND_API_KEY,
-    passwordResetSecretConfigured:!!env.PASSWORD_RESET_SECRET
+    resendApiKeyConfigured:!!RESEND_API_KEY,
+    passwordResetSecretConfigured:!!PASSWORD_RESET_SECRET
   },200,cors);
 }
 
