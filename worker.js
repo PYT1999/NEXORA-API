@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-// NEXORA 34.1.0 API — Cloudflare Worker + D1 + Realtime Realms + Password Recovery
+// NEXORA 34.1.1API — Cloudflare Worker + D1 + Realtime Realms + Password Recovery
 // D1 binding: env.DB
 
 const PBKDF2_ITERATIONS = 100000;
@@ -35,7 +35,7 @@ export default {
 
     try {
       if (url.pathname === "/health") {
-        return json({ok:true,service:"nexora-api",version:"34.1.0",multiplayer:true,passwordReset:true,passwordResetConfigured:!!(env.RESEND_API_KEY&&env.RESET_FROM_EMAIL&&env.PASSWORD_RESET_SECRET)},200,cors);
+        return json({ok:true,service:"nexora-api",version:"34.1.1",multiplayer:true,passwordReset:true,passwordResetConfigured:!!(env.RESEND_API_KEY&&env.PASSWORD_RESET_SECRET)},200,cors);
       }
 
       if (url.pathname === "/api/register" && request.method === "POST") {
@@ -85,7 +85,7 @@ export default {
         const email=normalizeEmail(body.email);
         if(!isValidEmail(email)) return json({error:"Bitte eine gültige E-Mail-Adresse eingeben."},400,cors);
 
-        if(!env.RESEND_API_KEY || !env.RESET_FROM_EMAIL || !env.PASSWORD_RESET_SECRET){
+        if(!env.RESEND_API_KEY || !env.PASSWORD_RESET_SECRET){
           return json({error:"Passwort-Wiederherstellung ist noch nicht vollständig eingerichtet."},503,cors);
         }
 
@@ -332,7 +332,7 @@ async function sendPasswordResetEmail(env,to,code){
       method:"POST",
       headers:{"Authorization":"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},
       body:JSON.stringify({
-        from:env.RESET_FROM_EMAIL,
+        from:"NEXORA <noreply@mail.nexorasystems.ch>"
         to:[to],
         subject:"NEXORA – Passwort zurücksetzen",
         text:`Dein NEXORA Reset-Code lautet: ${code}\n\nDer Code ist 10 Minuten gültig. Falls du das nicht angefordert hast, ignoriere diese E-Mail.`,
