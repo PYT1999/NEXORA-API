@@ -3,7 +3,7 @@
   "name": "nexora-api",
   "main": "worker.js",
   "compatibility_date": "2026-09-11",
-
+  "keep_vars": true,
   "vars": {
     "RESET_FROM_EMAIL": "NEXORA <noreply@mail.nexorasystems.ch>"
   },
