@@ -132,7 +132,7 @@ if (url.pathname === "/health") {
         await env.DB.prepare(`INSERT INTO password_reset_codes (id,user_id,code_hash,created_at,expires_at,attempts,used_at) VALUES (?,?,?,?,?,?,NULL)`)
           .bind(resetId,user.id,codeHash,now,expiresAt,0).run();
 
-        const sent=await sendPasswordResetEmail(env,user.email,code);
+        const sent=await sendPasswordResetEmail(RESEND_API_KEY,user.email,code);
         if(!sent){
           await env.DB.prepare("UPDATE password_reset_codes SET used_at=? WHERE id=?").bind(Date.now(),resetId).run();
           console.error("NEXORA password reset email could not be sent for",user.id);
@@ -347,11 +347,14 @@ function constantTimeStringEqual(a,b){
   a=String(a);b=String(b);if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0;
 }
 
-async function sendPasswordResetEmail(env,to,code){
+async function sendPasswordResetEmail(apiKey,to,code){
   try{
     const response=await fetch("https://api.resend.com/emails",{
       method:"POST",
-      headers:{"Authorization":"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},
+      headers:{
+        "Authorization":"Bearer "+apiKey,
+        "Content-Type":"application/json"
+      },
       body:JSON.stringify({
         from:"NEXORA <noreply@mail.nexorasystems.ch>",
         to:[to],
@@ -360,9 +363,17 @@ async function sendPasswordResetEmail(env,to,code){
         html:`<div style="font-family:Arial,sans-serif;background:#0b0d10;color:#eee;padding:28px"><h2 style="letter-spacing:.12em">NEXORA</h2><p>Du hast das Zurücksetzen deines Passworts angefordert.</p><p style="font-size:30px;font-weight:800;letter-spacing:.25em">${code}</p><p>Der Code ist <b>10 Minuten</b> gültig.</p><p style="color:#9aa0aa">Falls du das nicht angefordert hast, ignoriere diese E-Mail.</p></div>`
       })
     });
-    if(!response.ok){console.error("Resend error",response.status,await response.text());return false}
+
+    if(!response.ok){
+      console.error("Resend error",response.status,await response.text());
+      return false;
+    }
+
     return true;
-  }catch(e){console.error("Resend request failed",e);return false}
+  }catch(e){
+    console.error("Resend request failed",e);
+    return false;
+  }
 }
 
 async function migrateLegacyCharacter(db,userId){
