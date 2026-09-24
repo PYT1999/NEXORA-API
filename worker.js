@@ -332,7 +332,7 @@ async function sendPasswordResetEmail(env,to,code){
       method:"POST",
       headers:{"Authorization":"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},
       body:JSON.stringify({
-        from:"NEXORA <noreply@mail.nexorasystems.ch>"
+        from:"NEXORA <noreply@mail.nexorasystems.ch>",
         to:[to],
         subject:"NEXORA – Passwort zurücksetzen",
         text:`Dein NEXORA Reset-Code lautet: ${code}\n\nDer Code ist 10 Minuten gültig. Falls du das nicht angefordert hast, ignoriere diese E-Mail.`,
