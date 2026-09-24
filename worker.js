@@ -34,8 +34,7 @@ export default {
     }
 
     try {
-      if (url.pathname === "/health") {
-     if (url.pathname === "/health") {
+   if (url.pathname === "/health") {
   return json({
     ok:true,
     service:"nexora-api",
