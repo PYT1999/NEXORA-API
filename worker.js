@@ -24,6 +24,15 @@ export default {
     const origin = request.headers.get("Origin") || "";
     const cors = corsHeaders(origin);
     const url = new URL(request.url);
+    const RESEND_API_KEY =
+  env.RESEND_API_KEY && typeof env.RESEND_API_KEY.get === "function"
+    ? await env.RESEND_API_KEY.get()
+    : "";
+
+const PASSWORD_RESET_SECRET =
+  env.PASSWORD_RESET_SECRET && typeof env.PASSWORD_RESET_SECRET.get === "function"
+    ? await env.PASSWORD_RESET_SECRET.get()
+    : "";
 
     if (request.method === "OPTIONS") {
       if (origin && !ALLOWED_ORIGINS.has(origin)) return json({error:"Origin nicht erlaubt."},403,cors);
