@@ -49,20 +49,64 @@ export default {
     const cors = corsHeaders(origin);
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      if (origin && !ALLOWED_ORIGINS.has(origin)) {
-        return json(
-          {error:"Origin nicht erlaubt."},
-          403,
-          cors
-        );
-      }
+if (request.method === "OPTIONS") {
+  const requestOrigin =
+    request.headers.get("Origin") || "";
 
-      return new Response(null,{
-        status:204,
-        headers:cors
-      });
+  const requestedHeaders =
+    request.headers.get(
+      "Access-Control-Request-Headers"
+    ) || "Content-Type";
+
+  const allowed =
+    ALLOWED_ORIGINS.has(requestOrigin);
+
+  console.info(
+    "CORS PREFLIGHT",
+    {
+      origin: requestOrigin,
+      allowed,
+      requestedHeaders,
+      requestedMethod:
+        request.headers.get(
+          "Access-Control-Request-Method"
+        )
     }
+  );
+
+  if (!allowed) {
+    return new Response(null,{
+      status:403,
+      headers:{
+        "Content-Type":"text/plain",
+        "Vary":"Origin"
+      }
+    });
+  }
+
+  return new Response(null,{
+    status:204,
+    headers:{
+      "Access-Control-Allow-Origin":
+        requestOrigin,
+
+      "Access-Control-Allow-Credentials":
+        "true",
+
+      "Access-Control-Allow-Methods":
+        "GET, POST, PUT, DELETE, OPTIONS",
+
+      "Access-Control-Allow-Headers":
+        requestedHeaders,
+
+      "Access-Control-Max-Age":
+        "86400",
+
+      "Vary":
+        "Origin, Access-Control-Request-Headers"
+    }
+  });
+}
 
     if (
       url.pathname.startsWith("/api/") &&
@@ -99,7 +143,7 @@ export default {
         return json({
           ok:true,
           service:"nexora-api",
-          version:"34.1.3",
+          version:"34.1.4",
           multiplayer:true,
           passwordReset:true,
 
@@ -2258,30 +2302,15 @@ async function migrateLegacyCharacter(
 function corsHeaders(origin){
 
   const h={
-    "Cache-Control":
-      "no-store",
-
-    "Access-Control-Allow-Headers":
-      "Content-Type",
-
+    "Cache-Control":"no-store",
+    "Access-Control-Allow-Credentials":"true",
     "Access-Control-Allow-Methods":
       "GET, POST, PUT, DELETE, OPTIONS",
-
-    "Access-Control-Allow-Credentials":
-      "true",
-
-    "Vary":
-      "Origin"
+    "Vary":"Origin"
   };
 
-  if(
-    ALLOWED_ORIGINS.has(
-      origin
-    )
-  ){
-    h[
-      "Access-Control-Allow-Origin"
-    ]=origin;
+  if(ALLOWED_ORIGINS.has(origin)){
+    h["Access-Control-Allow-Origin"]=origin;
   }
 
   return h;
