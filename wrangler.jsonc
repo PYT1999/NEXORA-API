@@ -4,6 +4,11 @@
   "main": "worker.js",
   "compatibility_date": "2026-09-11",
 
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
   "vars": {
     "RESET_FROM_EMAIL": "NEXORA <noreply@mail.nexorasystems.ch>"
   },
